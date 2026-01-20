@@ -3,10 +3,26 @@
 import asyncio
 import json
 import random
+import logging
+from datetime import datetime
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from typing import Optional
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(message)s",
+    datefmt="%H:%M:%S"
+)
+logger = logging.getLogger("copperhead")
+
 app = FastAPI(title="CopperHead Server")
+
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("🐍 CopperHead Server started")
+    logger.info(f"   Grid: {GRID_WIDTH}x{GRID_HEIGHT}, Tick rate: {TICK_RATE}s")
 
 GRID_WIDTH = 30
 GRID_HEIGHT = 20
@@ -148,6 +164,7 @@ class GameManager:
     async def connect(self, player_id: int, websocket: WebSocket):
         await websocket.accept()
         self.connections[player_id] = websocket
+        logger.info(f"✅ Player {player_id} connected ({len(self.connections)} player(s) online)")
         await self.broadcast_state()
 
     def disconnect(self, player_id: int):
@@ -156,8 +173,10 @@ class GameManager:
         if self.game_task:
             self.game_task.cancel()
             self.game_task = None
+            logger.info("⏹️  Game stopped (player disconnected)")
         self.game = Game()
         self.pending_mode = "two_player"
+        logger.info(f"❌ Player {player_id} disconnected ({len(self.connections)} player(s) online)")
 
     async def handle_message(self, player_id: int, data: dict):
         action = data.get("action")
@@ -171,6 +190,7 @@ class GameManager:
             if mode in ("one_player", "two_player"):
                 self.pending_mode = mode
             self.ready.add(player_id)
+            logger.info(f"👍 Player {player_id} ready (mode: {self.pending_mode})")
             required_players = 1 if self.pending_mode == "one_player" else 2
             if len(self.ready) >= required_players and not self.game.running:
                 await self.start_game()
@@ -178,6 +198,7 @@ class GameManager:
     async def start_game(self):
         self.game = Game(mode=self.pending_mode)
         self.game.running = True
+        logger.info(f"🎮 Game started! Mode: {self.game.mode}, Players: {list(self.game.snakes.keys())}")
         await self.broadcast({"type": "start", "mode": self.game.mode})
         self.game_task = asyncio.create_task(self.game_loop())
 
@@ -187,6 +208,11 @@ class GameManager:
                 self.game.update()
                 await self.broadcast_state()
                 if not self.game.running:
+                    scores = {pid: s.score for pid, s in self.game.snakes.items()}
+                    if self.game.winner:
+                        logger.info(f"🏆 Game over! Player {self.game.winner} wins! Scores: {scores}")
+                    else:
+                        logger.info(f"🏁 Game over! Draw. Scores: {scores}")
                     await self.broadcast({"type": "gameover", "winner": self.game.winner})
                     self.ready.clear()
                 await asyncio.sleep(TICK_RATE)
