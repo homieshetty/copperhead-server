@@ -371,6 +371,11 @@ class GameManager:
             if direction in ("up", "down", "left", "right"):
                 if player_id in self.game.snakes:
                     self.game.snakes[player_id].queue_direction(direction)
+        elif action == "set_ai_difficulty" and self.ai_player:
+            new_difficulty = data.get("ai_difficulty", 5)
+            new_difficulty = max(1, min(10, new_difficulty))
+            self.ai_player.difficulty = new_difficulty
+            logger.info(f"🤖 AI difficulty changed to {new_difficulty}")
         elif action == "ready":
             mode = data.get("mode", "two_player")
             if mode in ("two_player", "vs_ai"):
