@@ -526,6 +526,26 @@ class RoomManager:
     
     def __init__(self):
         self.rooms: dict[int, GameRoom] = {}
+        self._matchmaking_lock = asyncio.Lock()
+    
+    async def find_or_create_room(self) -> tuple[Optional[GameRoom], int]:
+        """Thread-safe matchmaking: find a waiting room or create a new one."""
+        async with self._matchmaking_lock:
+            # First, try to find a waiting room
+            for room in self.rooms.values():
+                if room.is_waiting_for_player():
+                    player_id = room.get_available_slot() or 2
+                    return room, player_id
+            
+            # No waiting room, create a new one
+            for room_id in range(1, self.MAX_ROOMS + 1):
+                if room_id not in self.rooms or self.rooms[room_id].is_empty():
+                    room = GameRoom(room_id, self)
+                    self.rooms[room_id] = room
+                    logger.info(f"🏠 Room {room_id} created ({len([r for r in self.rooms.values() if not r.is_empty()])} active rooms)")
+                    return room, 1
+            
+            return None, 0
     
     def find_waiting_room(self) -> Optional[GameRoom]:
         """Find a room waiting for a second player."""
@@ -616,17 +636,12 @@ room_manager = RoomManager()
 @app.websocket("/ws/join")
 async def join_game(websocket: WebSocket):
     """Auto-matchmaking: join a waiting game or create a new one."""
-    # First, try to join a waiting room
-    room = room_manager.find_waiting_room()
-    player_id = 2
+    # Use thread-safe matchmaking
+    room, player_id = await room_manager.find_or_create_room()
     
     if not room:
-        # No waiting room, create a new one
-        room = room_manager.create_room()
-        if not room:
-            await websocket.close(code=4002, reason="Server full - no room available")
-            return
-        player_id = 1
+        await websocket.close(code=4002, reason="Server full - no room available")
+        return
     
     await room.connect_player(player_id, websocket)
     
