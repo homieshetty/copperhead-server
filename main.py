@@ -5,6 +5,8 @@ import json
 import os
 import random
 import logging
+import subprocess
+import sys
 from datetime import datetime
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from typing import Optional
@@ -197,141 +199,6 @@ class Game:
         }
 
 
-class AIPlayer:
-    """AI-controlled snake with configurable difficulty (1-10)."""
-    
-    def __init__(self, difficulty: int = 5):
-        self.difficulty = max(1, min(10, difficulty))
-    
-    def get_move(self, game: "Game", player_id: int) -> Optional[str]:
-        snake = game.snakes.get(player_id)
-        if not snake or not snake.alive:
-            return None
-        
-        head = snake.head()
-        food = game.food
-        
-        # Get all possible moves
-        directions = ["up", "down", "left", "right"]
-        moves = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}
-        opposites = {"up": "down", "down": "up", "left": "right", "right": "left"}
-        
-        # Filter out reverse direction
-        valid_directions = [d for d in directions if d != opposites[snake.direction]]
-        
-        # Evaluate each direction
-        scored_moves = []
-        for direction in valid_directions:
-            dx, dy = moves[direction]
-            new_head = (head[0] + dx, head[1] + dy)
-            
-            # Check if move is safe
-            is_safe = self._is_safe(new_head, game, player_id)
-            
-            # Calculate distance to food
-            food_dist = 0
-            if food:
-                food_dist = abs(new_head[0] - food[0]) + abs(new_head[1] - food[1])
-            
-            scored_moves.append({
-                "direction": direction,
-                "safe": is_safe,
-                "food_dist": food_dist,
-                "new_head": new_head
-            })
-        
-        # Sort by safety first, then by food distance
-        safe_moves = [m for m in scored_moves if m["safe"]]
-        unsafe_moves = [m for m in scored_moves if not m["safe"]]
-        
-        # Higher difficulty = smarter choices
-        mistake_chance = (10 - self.difficulty) / 10 * 0.3  # 0% to 27% mistake rate
-        
-        if safe_moves:
-            # Sort safe moves by food distance
-            safe_moves.sort(key=lambda m: m["food_dist"])
-            
-            # At lower difficulties, sometimes pick suboptimal moves
-            if random.random() < mistake_chance and len(safe_moves) > 1:
-                return random.choice(safe_moves)["direction"]
-            
-            # Higher difficulty: look ahead for better paths
-            if self.difficulty >= 7:
-                best_move = self._look_ahead(safe_moves, game, player_id)
-                if best_move:
-                    return best_move
-            
-            return safe_moves[0]["direction"]
-        elif unsafe_moves:
-            # No safe moves, pick the least bad option
-            return unsafe_moves[0]["direction"]
-        
-        return snake.direction
-    
-    def _is_safe(self, pos: tuple[int, int], game: "Game", player_id: int) -> bool:
-        x, y = pos
-        
-        # Wall collision
-        if x < 0 or x >= GRID_WIDTH or y < 0 or y >= GRID_HEIGHT:
-            return False
-        
-        # Self collision
-        snake = game.snakes[player_id]
-        if pos in snake.body[:-1]:  # Exclude tail as it will move
-            return False
-        
-        # Other snake collision
-        for pid, other in game.snakes.items():
-            if pid != player_id and other.alive:
-                if pos in other.body:
-                    return False
-        
-        return True
-    
-    def _look_ahead(self, moves: list, game: "Game", player_id: int) -> Optional[str]:
-        """Look ahead to avoid traps."""
-        best_move = None
-        best_space = -1
-        
-        for move in moves:
-            # Count available spaces from this position
-            space = self._count_space(move["new_head"], game, player_id)
-            if space > best_space:
-                best_space = space
-                best_move = move["direction"]
-        
-        return best_move
-    
-    def _count_space(self, start: tuple[int, int], game: "Game", player_id: int, max_depth: int = 10) -> int:
-        """Flood fill to count available space."""
-        visited = set()
-        queue = [start]
-        count = 0
-        
-        obstacles = set()
-        for pid, snake in game.snakes.items():
-            obstacles.update(snake.body[:-1] if pid == player_id else snake.body)
-        
-        while queue and count < max_depth * 4:
-            pos = queue.pop(0)
-            if pos in visited:
-                continue
-            
-            x, y = pos
-            if x < 0 or x >= GRID_WIDTH or y < 0 or y >= GRID_HEIGHT:
-                continue
-            if pos in obstacles:
-                continue
-            
-            visited.add(pos)
-            count += 1
-            
-            for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
-                queue.append((x + dx, y + dy))
-        
-        return count
-
-
 class GameRoom:
     """Manages a single game room with two players and optional observers."""
     
@@ -344,8 +211,7 @@ class GameRoom:
         self.ready: set[int] = set()
         self.game_task: Optional[asyncio.Task] = None
         self.pending_mode: str = "two_player"
-        self.ai_player: Optional[AIPlayer] = None
-        self.ai_player_id: Optional[int] = None
+        self.bot_process: Optional[subprocess.Popen] = None
         self.wins: dict[int, int] = {1: 0, 2: 0}
         self.names: dict[int, str] = {1: "Player 1", 2: "Player 2"}
 
@@ -396,13 +262,23 @@ class GameRoom:
             self.game_task.cancel()
             self.game_task = None
             logger.info(f"⏹️ [Room {self.room_id}] Game stopped (player disconnected)")
+        self._stop_bot()
         self.game = Game()
         self.pending_mode = "two_player"
-        self.ai_player = None
-        self.ai_player_id = None
         self.wins = {1: 0, 2: 0}
         self.names = {1: "Player 1", 2: "Player 2"}
         logger.info(f"❌ [Room {self.room_id}] Player {player_id} disconnected ({len(self.connections)} player(s))")
+
+    def _stop_bot(self):
+        """Terminate the spawned CopperBot process if running."""
+        if self.bot_process:
+            try:
+                self.bot_process.terminate()
+                self.bot_process.wait(timeout=2)
+                logger.info(f"🤖 [Room {self.room_id}] CopperBot process terminated")
+            except Exception as e:
+                logger.warning(f"⚠️ [Room {self.room_id}] Failed to terminate CopperBot: {e}")
+            self.bot_process = None
 
     def disconnect_observer(self, websocket: WebSocket):
         if websocket in self.observers:
@@ -416,11 +292,6 @@ class GameRoom:
             if direction in ("up", "down", "left", "right"):
                 if player_id in self.game.snakes:
                     self.game.snakes[player_id].queue_direction(direction)
-        elif action == "set_ai_difficulty" and self.ai_player:
-            new_difficulty = data.get("ai_difficulty", 5)
-            new_difficulty = max(1, min(10, new_difficulty))
-            self.ai_player.difficulty = new_difficulty
-            logger.info(f"🤖 [Room {self.room_id}] AI difficulty changed to {new_difficulty}")
         elif action == "ready":
             mode = data.get("mode", "two_player")
             if mode in ("two_player", "vs_ai"):
@@ -431,31 +302,61 @@ class GameRoom:
             
             if mode == "vs_ai":
                 ai_difficulty = data.get("ai_difficulty", 5)
-                self.ai_player = AIPlayer(difficulty=ai_difficulty)
-                self.ai_player_id = 2 if player_id == 1 else 1
-                self.names[self.ai_player_id] = "ServerBot"
-                logger.info(f"🤖 [Room {self.room_id}] AI opponent enabled (difficulty: {ai_difficulty})")
+                ai_difficulty = max(1, min(10, ai_difficulty))
+                self._spawn_bot(ai_difficulty)
             else:
-                self.ai_player = None
-                self.ai_player_id = None
+                self._stop_bot()
             
             self.ready.add(player_id)
             logger.info(f"👍 [Room {self.room_id}] {name} ready (mode: {self.pending_mode})")
             
-            required_players = 1 if self.pending_mode == "vs_ai" else 2
-            
-            if len(self.ready) >= required_players and not self.game.running:
-                await self.start_game()
-            elif self.pending_mode == "two_player" and len(self.ready) < required_players:
+            # For vs_ai, we need to wait for bot to connect (handled by bot joining)
+            # For two_player, check if both players ready
+            if self.pending_mode == "two_player":
+                if len(self.ready) >= 2 and not self.game.running:
+                    await self.start_game()
+                elif len(self.ready) < 2:
+                    if player_id in self.connections:
+                        await self.connections[player_id].send_json({
+                            "type": "waiting",
+                            "message": "Waiting for Player 2..."
+                        })
+            elif self.pending_mode == "vs_ai":
+                # Tell player we're spawning a bot
                 if player_id in self.connections:
                     await self.connections[player_id].send_json({
                         "type": "waiting",
-                        "message": "Waiting for Player 2..."
+                        "message": "Launching CopperBot..."
                     })
 
+    def _spawn_bot(self, difficulty: int):
+        """Spawn a CopperBot process to play against the human player."""
+        self._stop_bot()  # Clean up any existing bot
+        
+        # Get the server URL
+        codespace_name = os.environ.get("CODESPACE_NAME")
+        github_domain = os.environ.get("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", "app.github.dev")
+        
+        if codespace_name:
+            server_url = f"wss://{codespace_name}-8000.{github_domain}/ws/"
+        else:
+            server_url = "ws://localhost:8000/ws/"
+        
+        # Path to copperbot.py (same directory as main.py)
+        script_path = os.path.join(os.path.dirname(__file__), "copperbot.py")
+        
+        try:
+            self.bot_process = subprocess.Popen(
+                [sys.executable, script_path, "--server", server_url, "--difficulty", str(difficulty)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            logger.info(f"🤖 [Room {self.room_id}] CopperBot L{difficulty} spawned (PID: {self.bot_process.pid})")
+        except Exception as e:
+            logger.error(f"❌ [Room {self.room_id}] Failed to spawn CopperBot: {e}")
+
     async def start_game(self):
-        game_mode = "two_player" if self.pending_mode == "vs_ai" else self.pending_mode
-        self.game = Game(mode=game_mode)
+        self.game = Game(mode="two_player")
         self.game.running = True
         
         logger.info(f"🎮 [Room {self.room_id}] Game started! Mode: {self.pending_mode}")
@@ -470,11 +371,6 @@ class GameRoom:
     async def game_loop(self):
         try:
             while self.game.running:
-                if self.ai_player and self.ai_player_id:
-                    ai_direction = self.ai_player.get_move(self.game, self.ai_player_id)
-                    if ai_direction:
-                        self.game.snakes[self.ai_player_id].queue_direction(ai_direction)
-                
                 self.game.update()
                 await self.broadcast_state()
                 if not self.game.running:
