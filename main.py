@@ -332,38 +332,80 @@ class AIPlayer:
         return count
 
 
-class GameManager:
-    def __init__(self):
+class GameRoom:
+    """Manages a single game room with two players and optional observers."""
+    
+    def __init__(self, room_id: int):
+        self.room_id = room_id
         self.game = Game()
         self.connections: dict[int, WebSocket] = {}
+        self.observers: list[WebSocket] = []
         self.ready: set[int] = set()
         self.game_task: Optional[asyncio.Task] = None
         self.pending_mode: str = "two_player"
         self.ai_player: Optional[AIPlayer] = None
         self.ai_player_id: Optional[int] = None
-        self.wins: dict[int, int] = {1: 0, 2: 0}  # Track games won per player
-        self.names: dict[int, str] = {1: "Player 1", 2: "Player 2"}  # Player names
+        self.wins: dict[int, int] = {1: 0, 2: 0}
+        self.names: dict[int, str] = {1: "Player 1", 2: "Player 2"}
 
-    async def connect(self, player_id: int, websocket: WebSocket):
+    def is_empty(self) -> bool:
+        return len(self.connections) == 0
+
+    def is_waiting_for_player(self) -> bool:
+        """Returns True if room has player 1 waiting for player 2."""
+        return len(self.connections) == 1 and 1 in self.connections and not self.game.running
+
+    def is_full(self) -> bool:
+        return len(self.connections) >= 2
+
+    def is_active(self) -> bool:
+        return self.game.running
+
+    def get_available_slot(self) -> Optional[int]:
+        if 1 not in self.connections:
+            return 1
+        if 2 not in self.connections:
+            return 2
+        return None
+
+    async def connect_player(self, player_id: int, websocket: WebSocket):
         await websocket.accept()
         self.connections[player_id] = websocket
-        logger.info(f"✅ Player {player_id} connected ({len(self.connections)} player(s) online)")
+        logger.info(f"✅ [Room {self.room_id}] Player {player_id} connected ({len(self.connections)} player(s))")
         await self.broadcast_state()
 
-    def disconnect(self, player_id: int):
+    async def connect_observer(self, websocket: WebSocket):
+        await websocket.accept()
+        self.observers.append(websocket)
+        logger.info(f"👁️ [Room {self.room_id}] Observer connected ({len(self.observers)} observer(s))")
+        # Send current state to observer
+        await websocket.send_json({
+            "type": "observer_joined",
+            "room_id": self.room_id,
+            "game": self.game.to_dict(),
+            "wins": self.wins,
+            "names": self.names
+        })
+
+    def disconnect_player(self, player_id: int):
         self.connections.pop(player_id, None)
         self.ready.discard(player_id)
         if self.game_task:
             self.game_task.cancel()
             self.game_task = None
-            logger.info("⏹️  Game stopped (player disconnected)")
+            logger.info(f"⏹️ [Room {self.room_id}] Game stopped (player disconnected)")
         self.game = Game()
         self.pending_mode = "two_player"
         self.ai_player = None
         self.ai_player_id = None
-        self.wins = {1: 0, 2: 0}  # Reset wins on disconnect
-        self.names = {1: "Player 1", 2: "Player 2"}  # Reset names
-        logger.info(f"❌ Player {player_id} disconnected ({len(self.connections)} player(s) online)")
+        self.wins = {1: 0, 2: 0}
+        self.names = {1: "Player 1", 2: "Player 2"}
+        logger.info(f"❌ [Room {self.room_id}] Player {player_id} disconnected ({len(self.connections)} player(s))")
+
+    def disconnect_observer(self, websocket: WebSocket):
+        if websocket in self.observers:
+            self.observers.remove(websocket)
+            logger.info(f"👁️ [Room {self.room_id}] Observer disconnected ({len(self.observers)} observer(s))")
 
     async def handle_message(self, player_id: int, data: dict):
         action = data.get("action")
@@ -376,40 +418,33 @@ class GameManager:
             new_difficulty = data.get("ai_difficulty", 5)
             new_difficulty = max(1, min(10, new_difficulty))
             self.ai_player.difficulty = new_difficulty
-            logger.info(f"🤖 AI difficulty changed to {new_difficulty}")
+            logger.info(f"🤖 [Room {self.room_id}] AI difficulty changed to {new_difficulty}")
         elif action == "ready":
             mode = data.get("mode", "two_player")
             if mode in ("two_player", "vs_ai"):
                 self.pending_mode = mode
             
-            # Set player name
             name = data.get("name", f"Player {player_id}")
             self.names[player_id] = name
             
-            # Handle AI opponent setup
             if mode == "vs_ai":
                 ai_difficulty = data.get("ai_difficulty", 5)
                 self.ai_player = AIPlayer(difficulty=ai_difficulty)
                 self.ai_player_id = 2 if player_id == 1 else 1
                 self.names[self.ai_player_id] = "ServerBot"
-                logger.info(f"🤖 AI opponent enabled (difficulty: {ai_difficulty}, player: {self.ai_player_id})")
+                logger.info(f"🤖 [Room {self.room_id}] AI opponent enabled (difficulty: {ai_difficulty})")
             else:
                 self.ai_player = None
                 self.ai_player_id = None
             
             self.ready.add(player_id)
-            logger.info(f"👍 {name} (Player {player_id}) ready (mode: {self.pending_mode})")
+            logger.info(f"👍 [Room {self.room_id}] {name} ready (mode: {self.pending_mode})")
             
-            # For vs_ai mode, only need 1 human player
-            if self.pending_mode == "vs_ai":
-                required_players = 1
-            else:
-                required_players = 2
+            required_players = 1 if self.pending_mode == "vs_ai" else 2
             
             if len(self.ready) >= required_players and not self.game.running:
                 await self.start_game()
             elif self.pending_mode == "two_player" and len(self.ready) < required_players:
-                # Notify player they're waiting for opponent
                 if player_id in self.connections:
                     await self.connections[player_id].send_json({
                         "type": "waiting",
@@ -417,23 +452,18 @@ class GameManager:
                     })
 
     async def start_game(self):
-        # For vs_ai mode, use two_player game setup
         game_mode = "two_player" if self.pending_mode == "vs_ai" else self.pending_mode
         self.game = Game(mode=game_mode)
         self.game.running = True
         
-        if self.ai_player:
-            logger.info(f"🎮 Game started! Mode: vs_ai (difficulty {self.ai_player.difficulty}), Human: Player {3 - self.ai_player_id}, AI: Player {self.ai_player_id}")
-        else:
-            logger.info(f"🎮 Game started! Mode: {self.game.mode}, Players: {list(self.game.snakes.keys())}")
+        logger.info(f"🎮 [Room {self.room_id}] Game started! Mode: {self.pending_mode}")
         
-        await self.broadcast({"type": "start", "mode": self.pending_mode})
+        await self.broadcast({"type": "start", "mode": self.pending_mode, "room_id": self.room_id})
         self.game_task = asyncio.create_task(self.game_loop())
 
     async def game_loop(self):
         try:
             while self.game.running:
-                # AI makes its move before update
                 if self.ai_player and self.ai_player_id:
                     ai_direction = self.ai_player.get_move(self.game, self.ai_player_id)
                     if ai_direction:
@@ -444,51 +474,193 @@ class GameManager:
                 if not self.game.running:
                     if self.game.winner:
                         self.wins[self.game.winner] += 1
-                        winner_label = f"Player {self.game.winner}"
-                        if self.ai_player and self.game.winner == self.ai_player_id:
-                            winner_label = "AI"
-                        logger.info(f"🏆 Game over! {winner_label} wins! Wins: {dict(self.wins)}")
+                        logger.info(f"🏆 [Room {self.room_id}] Game over! Winner: {self.names.get(self.game.winner, 'Unknown')}")
                     else:
-                        logger.info(f"🏁 Game over! Draw. Wins: {dict(self.wins)}")
-                    await self.broadcast({"type": "gameover", "winner": self.game.winner, "wins": self.wins, "names": self.names})
+                        logger.info(f"🏁 [Room {self.room_id}] Game over! Draw.")
+                    await self.broadcast({"type": "gameover", "winner": self.game.winner, "wins": self.wins, "names": self.names, "room_id": self.room_id})
                     self.ready.clear()
                 await asyncio.sleep(TICK_RATE)
         except asyncio.CancelledError:
             pass
 
     async def broadcast_state(self):
-        await self.broadcast({"type": "state", "game": self.game.to_dict(), "wins": self.wins, "names": self.names})
+        await self.broadcast({"type": "state", "game": self.game.to_dict(), "wins": self.wins, "names": self.names, "room_id": self.room_id})
 
     async def broadcast(self, message: dict):
-        disconnected = []
+        disconnected_players = []
+        disconnected_observers = []
+        
+        # Send to players
         for pid, ws in self.connections.items():
             try:
                 await ws.send_json(message)
             except Exception:
-                disconnected.append(pid)
-        for pid in disconnected:
-            self.disconnect(pid)
+                disconnected_players.append(pid)
+        
+        # Send to observers
+        for ws in self.observers:
+            try:
+                await ws.send_json(message)
+            except Exception:
+                disconnected_observers.append(ws)
+        
+        for pid in disconnected_players:
+            self.disconnect_player(pid)
+        for ws in disconnected_observers:
+            self.disconnect_observer(ws)
 
 
-manager = GameManager()
+class RoomManager:
+    """Manages multiple game rooms."""
+    
+    MAX_ROOMS = 10
+    
+    def __init__(self):
+        self.rooms: dict[int, GameRoom] = {}
+    
+    def find_waiting_room(self) -> Optional[GameRoom]:
+        """Find a room waiting for a second player."""
+        for room in self.rooms.values():
+            if room.is_waiting_for_player():
+                return room
+        return None
+    
+    def find_active_room(self) -> Optional[GameRoom]:
+        """Find any room with an active game (for observers)."""
+        for room in self.rooms.values():
+            if room.is_active():
+                return room
+        return None
+    
+    def create_room(self) -> Optional[GameRoom]:
+        """Create a new room if slots available."""
+        for room_id in range(1, self.MAX_ROOMS + 1):
+            if room_id not in self.rooms or self.rooms[room_id].is_empty():
+                room = GameRoom(room_id)
+                self.rooms[room_id] = room
+                logger.info(f"🏠 Room {room_id} created ({len([r for r in self.rooms.values() if not r.is_empty()])} active rooms)")
+                return room
+        return None
+    
+    def get_room(self, room_id: int) -> Optional[GameRoom]:
+        return self.rooms.get(room_id)
+    
+    def cleanup_empty_rooms(self):
+        """Remove empty rooms."""
+        empty_rooms = [rid for rid, room in self.rooms.items() if room.is_empty()]
+        for rid in empty_rooms:
+            del self.rooms[rid]
+            logger.info(f"🧹 Room {rid} cleaned up")
+    
+    def get_status(self) -> dict:
+        """Get status of all rooms."""
+        return {
+            "total_rooms": len(self.rooms),
+            "rooms": [
+                {
+                    "room_id": room.room_id,
+                    "players": list(room.connections.keys()),
+                    "observers": len(room.observers),
+                    "game_running": room.game.running,
+                    "waiting_for_player": room.is_waiting_for_player()
+                }
+                for room in self.rooms.values()
+                if not room.is_empty()
+            ]
+        }
 
 
-@app.websocket("/ws/{player_id}")
-async def websocket_endpoint(websocket: WebSocket, player_id: int):
-    if player_id not in (1, 2):
-        await websocket.close(code=4000, reason="Invalid player_id")
-        return
-    if player_id in manager.connections:
-        await websocket.close(code=4001, reason="Player already connected")
-        return
+room_manager = RoomManager()
 
-    await manager.connect(player_id, websocket)
+
+@app.websocket("/ws/join")
+async def join_game(websocket: WebSocket):
+    """Auto-matchmaking: join a waiting game or create a new one."""
+    # First, try to join a waiting room
+    room = room_manager.find_waiting_room()
+    player_id = 2
+    
+    if not room:
+        # No waiting room, create a new one
+        room = room_manager.create_room()
+        if not room:
+            await websocket.close(code=4002, reason="Server full - no room available")
+            return
+        player_id = 1
+    
+    await room.connect_player(player_id, websocket)
+    
+    # Send player their assignment
+    await websocket.send_json({
+        "type": "joined",
+        "room_id": room.room_id,
+        "player_id": player_id
+    })
+    
     try:
         while True:
             data = await websocket.receive_json()
-            await manager.handle_message(player_id, data)
+            await room.handle_message(player_id, data)
     except WebSocketDisconnect:
-        manager.disconnect(player_id)
+        room.disconnect_player(player_id)
+        room_manager.cleanup_empty_rooms()
+
+
+@app.websocket("/ws/observe")
+async def observe_game(websocket: WebSocket):
+    """Observe an active game."""
+    room = room_manager.find_active_room()
+    
+    if not room:
+        await websocket.close(code=4003, reason="No active game to observe")
+        return
+    
+    await room.connect_observer(websocket)
+    
+    try:
+        while True:
+            # Observers don't send commands, just keep connection alive
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        room.disconnect_observer(websocket)
+
+
+# Legacy endpoint for backward compatibility
+@app.websocket("/ws/{player_id}")
+async def websocket_endpoint(websocket: WebSocket, player_id: int):
+    """Legacy endpoint - redirects to join."""
+    if player_id not in (1, 2):
+        await websocket.close(code=4000, reason="Invalid player_id. Use /ws/join instead.")
+        return
+    
+    # Find or create a room
+    room = None
+    if player_id == 2:
+        room = room_manager.find_waiting_room()
+    
+    if not room:
+        room = room_manager.create_room()
+        if not room:
+            await websocket.close(code=4002, reason="Server full")
+            return
+        player_id = 1  # Override to player 1 for new room
+    else:
+        player_id = room.get_available_slot() or 2
+    
+    await room.connect_player(player_id, websocket)
+    await websocket.send_json({
+        "type": "joined",
+        "room_id": room.room_id,
+        "player_id": player_id
+    })
+    
+    try:
+        while True:
+            data = await websocket.receive_json()
+            await room.handle_message(player_id, data)
+    except WebSocketDisconnect:
+        room.disconnect_player(player_id)
+        room_manager.cleanup_empty_rooms()
 
 
 @app.get("/")
@@ -498,9 +670,4 @@ async def root():
 
 @app.get("/status")
 async def status():
-    return {
-        "players_connected": list(manager.connections.keys()),
-        "game_running": manager.game.running,
-        "game_mode": manager.game.mode,
-        "ready_players": list(manager.ready),
-    }
+    return room_manager.get_status()
