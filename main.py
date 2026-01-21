@@ -353,9 +353,9 @@ class GameRoom:
         return len(self.connections) == 0
 
     def is_waiting_for_player(self) -> bool:
-        """Returns True if room has one player waiting for another."""
-        # Room is waiting if it has 1 connection and that player is ready
-        return len(self.connections) == 1 and len(self.ready) >= 1 and not self.game.running
+        """Returns True if room has one player and space for another."""
+        # Room is waiting if it has exactly 1 connection and game not running
+        return len(self.connections) == 1 and not self.game.running
 
     def is_full(self) -> bool:
         return len(self.connections) >= 2
