@@ -4,7 +4,7 @@ A game of CopperHead is played between two players on a rectangular grid. Each p
 
 The first player to collide with the wall or another player (unless protected by a buff) loses the game and the other player is awarded one point. 
 
-If both players collide simultaneously, the game ends in a draw and no points are awarded.
+If both players collide simultaneously, the game ends in a draw and no points are awarded. Exception: if players collide head-to-head and only one player changed direction in the last move, that player loses and the other player is awarded the point.
 
 The size of the grid is configurable via server settings.
 

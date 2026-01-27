@@ -487,6 +487,7 @@ class Snake:
         self.input_queue: list[str] = []
         self.alive = True
         self.buff = "default"  # Current active buff (default, speed, shield, inversion, lucky, slow, scissors, ghost)
+        self.changed_direction_last_move = False  # Track if direction changed in last move
 
     def head(self) -> tuple[int, int]:
         return self.body[0]
@@ -504,11 +505,13 @@ class Snake:
 
     def process_input(self):
         """Process one input from the queue."""
+        old_direction = self.direction
         if self.input_queue:
             new_dir = self.input_queue.pop(0)
             opposites = {"up": "down", "down": "up", "left": "right", "right": "left"}
             if opposites.get(new_dir) != self.direction:
                 self.next_direction = new_dir
+        self.changed_direction_last_move = (self.next_direction != old_direction)
 
     def get_next_head(self) -> tuple[int, int]:
         """Get where the head will be after processing input and moving."""
@@ -670,21 +673,34 @@ class Game:
                     if snake.head() in other.body:
                         snake.alive = False
         
-        # Check head-on collision (both snakes' heads in same position)
+        # Check head-on collision (both snakes' heads in same position or crossed paths)
         snake_list = list(self.snakes.values())
         if len(snake_list) == 2:
             s1, s2 = snake_list[0], snake_list[1]
+            head_on_collision = False
+            
             if s1.alive and s2.alive and s1.head() == s2.head():
-                # Head-on collision - both die
-                s1.alive = False
-                s2.alive = False
+                head_on_collision = True
             # Also check if they crossed paths (swapped positions)
             elif s1.alive and s2.alive and len(s1.body) >= 2 and len(s2.body) >= 2:
-                # If s1's head is at s2's previous head position and vice versa
-                s1_prev_head = s1.body[1]  # Previous head position
+                s1_prev_head = s1.body[1]
                 s2_prev_head = s2.body[1]
                 if s1.head() == s2_prev_head and s2.head() == s1_prev_head:
-                    # They crossed paths - both die
+                    head_on_collision = True
+            
+            if head_on_collision:
+                # Check if only one player changed direction - that player loses
+                s1_changed = s1.changed_direction_last_move
+                s2_changed = s2.changed_direction_last_move
+                
+                if s1_changed and not s2_changed:
+                    # S1 changed direction, S1 loses
+                    s1.alive = False
+                elif s2_changed and not s1_changed:
+                    # S2 changed direction, S2 loses
+                    s2.alive = False
+                else:
+                    # Both changed or neither changed - both die (draw)
                     s1.alive = False
                     s2.alive = False
 
