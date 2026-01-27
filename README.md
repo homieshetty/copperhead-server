@@ -23,36 +23,25 @@ NOTE: This repository provides only the server for hosting and managing the game
 
 3. **Open the CopperHead client** in your web browser: [CopperHead Client](https://revodavid.github.io/copperhead-client/)
 
+4. **Paste the WebSocket URL** from step 2 into the client to connect.
 
+## About CopperHead Server
 
+CopperHead Server is responsible for managing game state, player matchmaking, and competition logic for a multi-round CopperHead tournament among human and/or AI players.
 
+CopperHead Server does provide any user interface or graphics for playing the game. Human players use [CopperHead Client](../copperhead-client/) to play or observe games. Bots (automated players) connect via the WebSocket API.
 
+This server can launch basic bot opponents, but better strategies are possible. To **build your own bot opponent**, see [Building-Your-Own-Bot.md](Building-Your-Own-Bot.md) for instructions.
 
-
-
-
-* To **play the game** against friends or bots, launch the [CopperHead client](https://revodavid.github.io/copperhead-client/). 
-  - You can also launch the [copperhead-client](https://github.com/revodavid/copperhead-client) from this repository on your own Web server or via GitHub CodeSpaces.
-
-The server provides basic bot opponents, but better strategies are possible. To **build your own bot opponent**, see [Building-Your-Own-Bot.md](Building-Your-Own-Bot.md) for instructions.
-
-## Game Rules
+### Game Rules
 
 CopperHead is a 2-player game played on a rectangular grid. Each player controls a snake that moves around the grid, trying to eat food items to grow longer while avoiding collisions with walls, themselves, and the other player's snake. 
 
-The player who lasts the longest without colliding wins the game and is awareded a point. If both players collide simultaneously, the game ends in a draw and no points are awarded.
-
-### Buffs and Food Bonuses
-
-Each player may possess up to one buff at a time. Food items may affect your snake's length, award or remove a buff, or have other effects as follows:
-
-* Apple: Increases your snake length by 1.
-
-Food items may appear and disappear from the playfield according to server settings.
+See [Game Rules](game-rules.md) for full details on game mechanics and scoring.
 
 ### Winning a Match
 
-A Match of CopperHead consists of multiple games. The first player to reach a predefined number of points wins the match.
+A Match of CopperHead consists of multiple games. The player who survives the game wins a point. The first player to reach a predefined number of points wins the match.
 
 ## CopperHead Championship
 
@@ -60,7 +49,7 @@ The CopperHead server is designed to host a knockout tournament among human and/
 
 See [Competition Logic](competition-logic.md) for full details on how competitions are structured and run.
 
-## Server Setup
+## Server Reference
 
 Usage: python main.py [options] [spec-file]
 
@@ -82,62 +71,30 @@ Instead of using a spec file, you may provide command-line options. These option
 
 * `--bots`: Number of AI opponents to launch at server start. Default is 0. Bots are instances of CopperBot (`copperbot.py`) at random difficulty levels.
 
-## Basic Bot Opponent
+### Bot Opponents
 
-This repo provides a simple AI opponent (CopperBot - `copperbot.py`) that will be launched as necessary to provide AI opponents. CopperBot's logic is basic and can be easily defeated: you are encouraged to develop your own AI opponents with improved strategies. See `Bulding Your Own Bot.md` for details.
+This repo provides a simple AI opponent (CopperBot - `copperbot.py`) that will be launched as necessary to provide AI opponents. CopperBot's logic is basic and can be easily defeated: you are encouraged to develop your own AI opponents with improved strategies. See [Building-Your-Own-Bot.md](Building-Your-Own-Bot.md) for details.
 
-## Observer Mode
+### Observer Mode
 
 Clients may join the server as observers to spectate active games. Observers do not participate in the game and cannot influence the outcome, but they can view the game state in real-time.
 
-## Requirements
+## Requirements and Installation
+
+CopperHead Server is tested in GitHub Codespaces (Debian GNU/Linux 13) and on Windows 11 with Python 3.10+. It should run on any platform that supports the required dependencies.
 
 - Python 3.10+
 - FastAPI
 - uvicorn
 - websockets
 
-## Quick Start with GitHub Codespaces
-
-1. Click the **Code** button on the repository page
-2. Select the **Codespaces** tab
-3. Click **Create codespace on main**
-
-The server will automatically start and display connection instructions in the terminal.
-
-### Connecting Your Client
-
-When the server starts, you'll see a banner with instructions like this:
-
-```
-============================================================
-       🐍 COPPERHEAD SNAKE GAME SERVER 🐍
-============================================================
-
-📡 HOW TO PLAY:
-
-   Step 1: Open the game client in your browser:
-          https://revodavid.github.io/copperhead-client/
-
-   Step 2: Paste this Server URL into the client:
-
-          wss://your-codespace-name-8000.app.github.dev/ws/
-
-   Step 3: ⚠️  IMPORTANT - Make your port PUBLIC:
-          • Click the Ports tab in the bottom panel
-          • Right-click on port 8000
-          • Select Port Visibility → Public
-```
-
-Just follow these steps to connect and play!
-
-## Local Installation
+### Local Installation
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Running the Server Locally
+### Running the Server Locally
 
 ```bash
 python main.py
