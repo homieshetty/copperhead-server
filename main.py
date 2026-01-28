@@ -108,10 +108,15 @@ async def startup_event():
     # Initialize competition
     await competition.start_waiting()
     
+    # Build client URL with server parameter
+    import urllib.parse
+    client_base = "https://revodavid.github.io/copperhead-client/"
+    client_url = f"{client_base}?server={urllib.parse.quote(ws_url, safe='')}"
+    
     # Show URL reminder at the bottom so it's visible after all startup messages
     logger.info("")
     logger.info(f"📡 Server URL: {ws_url}")
-    logger.info(f"🎮 Client: https://revodavid.github.io/copperhead-client/")
+    logger.info(f"🎮 Play now: {client_url}")
     if codespace_name:
         logger.info(f"⚠️  Remember to make port 8000 PUBLIC in the Ports tab!")
 

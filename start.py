@@ -53,8 +53,14 @@ def get_connection_info():
 
 def update_readme_with_url(ws_url):
     """Update README.md with the actual WebSocket URL for this Codespace."""
+    import urllib.parse
+    
     script_dir = os.path.dirname(os.path.abspath(__file__))
     readme_path = os.path.join(script_dir, "README.md")
+    
+    # Build client URL with server parameter
+    client_base = "https://revodavid.github.io/copperhead-client/"
+    client_url = f"{client_base}?server={urllib.parse.quote(ws_url, safe='')}"
     
     try:
         with open(readme_path, "r", encoding="utf-8") as f:
@@ -65,16 +71,16 @@ def update_readme_with_url(ws_url):
         marker_end = "<!-- CODESPACE_CONNECTION_END -->"
         
         connection_block = f"""{marker_start}
-## 🎮 Connect Now!
+## 🎮 Play Now!
 
-**Your Server URL:**
+**[Click here to play!]({client_url})**
+
+Or copy this Server URL into the client:
 ```
 {ws_url}
 ```
 
-1. Open the client: **https://revodavid.github.io/copperhead-client/**
-2. Paste the Server URL above into the client
-3. ⚠️ Make sure port 8000 is **Public** (Ports tab → right-click → Port Visibility → Public)
+⚠️ Make sure port 8000 is **Public** (Ports tab → right-click → Port Visibility → Public)
 
 {marker_end}"""
         
@@ -105,23 +111,22 @@ def update_readme_with_url(ws_url):
 
 def print_connection_instructions(ws_url, is_codespace):
     """Print connection instructions for players."""
-    client_url = "https://revodavid.github.io/copperhead-client/"
+    import urllib.parse
+    
+    client_base = "https://revodavid.github.io/copperhead-client/"
+    client_url = f"{client_base}?server={urllib.parse.quote(ws_url, safe='')}"
     
     log(f"{CYAN}📡 HOW TO PLAY:{RESET}")
     log("")
-    log(f"   {BOLD}Step 1:{RESET} Open the game client in your browser:")
-    log(f"          {YELLOW}{client_url}{RESET}")
-    log("")
-    log(f"   {BOLD}Step 2:{RESET} Paste this Server URL into the client:")
-    log("")
-    log(f"          {GREEN}{BOLD}{ws_url}{RESET}")
+    log(f"   {BOLD}Open this link to play:{RESET}")
+    log(f"   {YELLOW}{client_url}{RESET}")
     log("")
     
     if is_codespace:
-        log(f"   {BOLD}Step 3:{RESET} {YELLOW}⚠️  IMPORTANT - Make your port PUBLIC:{RESET}")
-        log(f"          • Click the {BOLD}Ports{RESET} tab in the bottom panel")
-        log(f"          • Right-click on port {BOLD}8000{RESET}")
-        log(f"          • Select {BOLD}Port Visibility → Public{RESET}")
+        log(f"   {YELLOW}⚠️  IMPORTANT - Make your port PUBLIC first:{RESET}")
+        log(f"      • Click the {BOLD}Ports{RESET} tab in the bottom panel")
+        log(f"      • Right-click on port {BOLD}8000{RESET}")
+        log(f"      • Select {BOLD}Port Visibility → Public{RESET}")
         log("")
     
     log(f"{GREEN}{'='*60}{RESET}")
