@@ -1370,6 +1370,12 @@ class RoomManager:
         competition_in_progress = competition.state != CompetitionState.WAITING_FOR_PLAYERS
         open_slots = 0 if competition_in_progress else max_players - total_players
         
+        # Get active fruits (propensity > 0)
+        active_fruits = [
+            fruit_type for fruit_type, props in config.fruits.items()
+            if props.get("propensity", 0) > 0
+        ]
+        
         return {
             "version": "3.3.0",
             "arenas": config.arenas,
@@ -1382,6 +1388,7 @@ class RoomManager:
             "grid_width": config.grid_width,
             "grid_height": config.grid_height,
             "points_to_win": config.points_to_win,
+            "fruits": active_fruits,
             "rooms": [
                 {
                     "room_id": room.room_id,
