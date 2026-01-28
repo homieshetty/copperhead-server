@@ -1377,7 +1377,7 @@ class RoomManager:
         ]
         
         return {
-            "version": "3.3.0",
+            "version": "3.3.1",
             "arenas": config.arenas,
             "max_players": max_players,
             "total_players": total_players,
