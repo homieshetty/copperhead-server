@@ -7,7 +7,8 @@ A CopperHead Bot Hack Tournament is simple: after an hour or two few hours hacki
 Requirements:
 - One Host to run the event (the host can participate as well)
 - 4 participants with Github accounts (more is better!)
-- One laptop with internet access 
+  * GitHub accounts are free and include [GitHub Copilot](https://github.com/features/copilot) access, which will be very useful for this hack
+- One laptop per team with internet access 
 - [optional] A big screen for watching the final tournament
 
 ## Step 1: Gather your crew
@@ -38,7 +39,7 @@ Teams should then create their own `hackbot.py` file to build their bot -- copyi
 
 ### How do I write a bot?
 
-See [Building-Your-Own-Bot.md](Building-Your-Own-Bot.md) in the copperhead-server repository for detailed instructions on building a bot.
+See [Building-Your-Own-Bot.md](Building-Your-Own-Bot.md) in the copperhead-server repository for detailed instructions on building a bot. The [Game Rules](game-rules.md) and [Competition Logic](competition-logic.md) documents are also useful references.
 
 Using a coding agent like [GitHub Copilot](https://github.com/features/copilot) speeds up the process of making a competitive bot in the time allowed:
 
