@@ -2,13 +2,14 @@
 
 Looking for a fun way to hang out with your tech frients? Host a CopperHead Bot Hack Tournament! CopperHead is a head-to-head Snake game tournament server that supports AI bots, making it perfect for competitive programming events.
 
-A CopperHead Bot Hack Tournament is simple: after an hour or two few hours hacking together bots to play the Snake game, the winner is the team whose bot wins out against all other bots (and maybe even humans!) in a knockout tournament hosted on a CopperHead server. 
+A CopperHead Bot Hack Tournament is simple: after an hour or two hacking together bots to play the Snake game, the winner is the team whose bot wins out against all other bots (and maybe even humans!) in a knockout tournament hosted on a CopperHead server. 
 
-Requirements:
-- One Host to run the event (the host can participate as well)
+**You will need**:
+- One person (the Host) to run the event (the host can participate as well)
 - 4 participants with Github accounts (more is better!)
-  * GitHub accounts are free and include [GitHub Copilot](https://github.com/features/copilot) access, which will be very useful for this hack
+  * GitHub accounts are free and include [GitHub Copilot](https://github.com/features/copilot) and [GitHub Codespaces](https://github.com/features/codespaces) access, both of which will be very useful during this event.
 - One laptop per team with internet access 
+  * Any laptop will do. All code runs in GitHub Codespaces, so no local installation or cloud account is needed.
 - [optional] A big screen for watching the final tournament
 
 ## Step 1: Gather your crew
