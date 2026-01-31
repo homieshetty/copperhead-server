@@ -1,5 +1,20 @@
 # CopperHead Server
 
+<!-- CODESPACE_CONNECTION_START -->
+## 🎮 Play Now!
+
+**[Click here to play!](https://revodavid.github.io/copperhead-client/?server=wss%3A%2F%2Fglorious-space-fiesta-g4xr9qx7v6qv39667-8000.app.github.dev%2Fws%2F)**
+
+Or copy this Server URL into the client:
+```
+wss://glorious-space-fiesta-g4xr9qx7v6qv39667-8000.app.github.dev/ws/
+```
+
+⚠️ Make sure p0rt 8000 is **Public** (Ports tab → right-click → Port Visibility → Public)
+
+<!-- CODESPACE_CONNECTION_END -->
+
+
 Version: 3.3.2
 
 A server for a 2-player Snake game. The CopperHead server manages game state and multi-round knockout competitions, communicating with human and robot clients via WebSocket API.
